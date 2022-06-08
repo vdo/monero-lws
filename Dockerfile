@@ -1,8 +1,7 @@
 # Initial base from https://github.com/sethforprivacy/monero-lws/blob/588c7f1965d3afbda8a65dc870645650e063e897/Dockerfile
 
 # Set monerod version to install from github
-ARG MONERO_BRANCH=v0.17.3.0
-ARG MONERO_COMMIT_HASH=ab18fea3500841fc312630d49ed6840b3aedb34d
+ARG MONERO_BRANCH=v0.17.3.2
 
 # Select ubuntu:20.04 for the build image base
 FROM ubuntu:20.04 as build
@@ -44,7 +43,7 @@ RUN apt-get install --no-install-recommends -y \
 
 # Set necessary args and environment variables for building Monero
 ARG MONERO_BRANCH
-ARG MONERO_COMMIT_HASH
+ARG TARGETARCH
 ARG NPROC
 ENV CFLAGS='-fPIC'
 ENV CXXFLAGS='-fPIC -DELPP_FEATURE_CRASH_LOG'
@@ -57,11 +56,14 @@ WORKDIR /monero
 # Git pull Monero source at specified tag/branch and compile monerod binary
 RUN git clone --recursive --branch ${MONERO_BRANCH} \
     https://github.com/monero-project/monero . \
-    && test `git rev-parse HEAD` = ${MONERO_COMMIT_HASH} || exit 1 \
     && git submodule init && git submodule update \
     && mkdir -p build/release && cd build/release \
-    # Create make build files manually for release-static-linux-x86_64
-    && cmake -D STATIC=ON -D ARCH="x86-64" -D BUILD_64=ON -D CMAKE_BUILD_TYPE=release -D BUILD_TAG="linux-x64" ../.. \
+    # Create make build files for both arch
+    && case ${TARGETARCH:-amd64} in \
+        "arm64") cmake -D STATIC=ON -D ARCH="armv8-a" -D BUILD_64=ON -D CMAKE_BUILD_TYPE=release -D BUILD_TAG="linux-armv8" ../.. ;; \
+        "amd64") cmake -D STATIC=ON -D ARCH="x86-64" -D BUILD_64=ON -D CMAKE_BUILD_TYPE=release -D BUILD_TAG="linux-x64" ../.. ;; \
+        *) echo "Dockerfile does not support this platform"; exit 1 ;; \
+    esac \
     # Build only monerod binary using number of available threads
     && cd /monero && nice -n 19 ionice -c2 -n7 make -j${NPROC:-$(nproc)} -C build/release daemon
 
